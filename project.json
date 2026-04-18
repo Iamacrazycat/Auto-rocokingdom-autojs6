@@ -1,0 +1,8 @@
+{
+  "name": "Auto-rocokingdom-autojs",
+  "versionName": "1.0.0",
+  "versionCode": 1,
+  "packageName": "org.autojs.example.autorocokingdom",
+  "main": "main.js",
+  "api": "6.0"
+}
