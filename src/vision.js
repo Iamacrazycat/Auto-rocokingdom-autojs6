@@ -2,7 +2,7 @@ var config = require("../config.js");
 
 /**
  * 加载所有模板图像
- * @returns {Object} 包含 name 和 image 对象的字典
+ * @returns {Object} 包含 name 和预处理 Mat 的字典
  */
 function loadTemplates() {
     let templates = {};
@@ -24,10 +24,8 @@ function loadTemplates() {
                 try {
                     let mat = img.mat;
                     let processed = new Mat();
-                    // 1. 始终转成灰度图
                     Imgproc.cvtColor(mat, processed, Imgproc.COLOR_BGR2GRAY);
                     
-                    // 2. 如果不是 escape_yes，则提前抽出 Canny 边缘 （和 Python 脚本 100% 同步！）
                     let isYes = name.indexOf("yes") !== -1;
                     if (!isYes) {
                         Imgproc.Canny(processed, processed, 100, 200);
@@ -35,12 +33,12 @@ function loadTemplates() {
 
                     templates[name] = {
                         name: name,
-                        mat: processed,      // 此时存的是一个已经提炼完毕的特征 Mat！
+                        mat: processed,
                         width: img.width,
                         height: img.height,
-                        original: img        // 保持引用防止被 JVM 垃圾回收
+                        original: img
                     };
-                    console.verbose(`加载了匹配模板[${isYes ? 'GRAY' : 'CANNY'}]: ${name}`);
+                    console.verbose("加载了匹配模板[" + (isYes ? "GRAY" : "CANNY") + "]: " + name);
                 } catch(e) {
                     console.error("加载特征失败: " + name + " " + e);
                 }
@@ -52,14 +50,10 @@ function loadTemplates() {
 }
 
 /**
- * 包装自适应多档缩放的模板匹配逻辑
- * @param {Image} screenImg 当前屏幕截图
- * @param {Object} templateObj 模板对象 {image}
- * @returns {Object|null} 如果匹配成功，返回包含 {x, y, score} 的对象；否则返回 null
+ * 多档缩放模板匹配
  */
 function matchFeature(screenImg, templateObj, customThreshold) {
     if (!templateObj || !templateObj.mat) {
-        console.warn("未传入有效的特征 Mat 模板");
         return null;
     }
 
@@ -78,12 +72,11 @@ function matchFeature(screenImg, templateObj, customThreshold) {
     let Imgproc = org.opencv.imgproc.Imgproc;
     let Core = org.opencv.core.Core;
     let Mat = org.opencv.core.Mat;
-    let INTER_AREA = Imgproc.INTER_AREA || 3;  // 常量后备
+    let INTER_AREA = Imgproc.INTER_AREA || 3;
 
     try {
         let isYes = templateObj.name.indexOf("yes") !== -1;
         
-        // 实时对屏幕大图进行相应的特征提取
         let screenMat = screenImg.mat;
         let screenProcessed = new Mat();
         Imgproc.cvtColor(screenMat, screenProcessed, Imgproc.COLOR_BGR2GRAY);
@@ -92,7 +85,7 @@ function matchFeature(screenImg, templateObj, customThreshold) {
         }
 
         for (let scale of uniqueScales) {
-            let tplProcessed = templateObj.mat; // 读取缓存中提取好的特征 Mat
+            let tplProcessed = templateObj.mat;
             let scaledTplMat;
             let isScaled = Math.abs(scale - 1.0) > 0.05;
 
@@ -102,7 +95,6 @@ function matchFeature(screenImg, templateObj, customThreshold) {
                     let newW = Math.max(1, Math.floor(templateObj.width * scale));
                     let newH = Math.max(1, Math.floor(templateObj.height * scale));
                     let sz = new org.opencv.core.Size(newW, newH);
-                    // 重点：使用 INTER_AREA 压缩特征图线条！这是无缝平滑锯齿的核心！
                     Imgproc.resize(tplProcessed, scaledTplMat, sz, 0, 0, INTER_AREA);
                 } else {
                     scaledTplMat = tplProcessed;
@@ -124,7 +116,7 @@ function matchFeature(screenImg, templateObj, customThreshold) {
                     let clickX = pt.x + Math.floor(curW / 2);
                     let clickY = pt.y + Math.floor(curH / 2);
 
-                    console.verbose(`[Mat 矩阵匹配成功] 模板: ${templateObj.name}, 缩放比(x${scale.toFixed(2)}) 匹配得分:${sim.toFixed(3)}`);
+                    console.verbose("[Mat 矩阵匹配成功] 模板: " + templateObj.name + ", 缩放比(x" + scale.toFixed(2) + ") 匹配得分:" + sim.toFixed(3));
                     screenProcessed.release();
                     if (isScaled) scaledTplMat.release();
                     
@@ -137,7 +129,7 @@ function matchFeature(screenImg, templateObj, customThreshold) {
                     scaledTplMat.release();
                 }
             }
-        } // 结束 for
+        }
         screenProcessed.release();
     } catch (e) {
         console.error("整体匹配管道崩溃: " + e.message);
@@ -147,9 +139,91 @@ function matchFeature(screenImg, templateObj, customThreshold) {
 }
 
 /**
- * 基于 HSV 判断紫底的占比，用作智能模式的判断
- * @param {Image} screenImg 当前屏幕截图
- * @returns {Number} 0.0 到 1.0 的比例 
+ * OCR 文字提取（带 CLAHE 对比度增强预处理）
+ * 解决浅色背景下灰色文字识别率低的问题
+ */
+function detectOcrText(screenImg) {
+    let results = [];
+    try {
+        // 对截图进行 CLAHE 对比度增强，使灰色文字在浅色背景上更清晰
+        let processedImg = enhanceContrast(screenImg);
+        let targetImg = processedImg || screenImg; // 增强失败则用原图
+
+        let ocrResults = ocr.detect(targetImg);
+        if (ocrResults && ocrResults.length > 0) {
+            for (let i = 0; i < ocrResults.length; i++) {
+                let res = ocrResults[i];
+                results.push({
+                    text: res.text,
+                    bounds: res.bounds
+                });
+            }
+        }
+
+        if (processedImg) processedImg.recycle();
+    } catch (e) {
+        console.error("[OCR] 识别出错: " + e.message);
+    }
+    return results;
+}
+
+/**
+ * CLAHE 自适应直方图均衡化：增强局部对比度
+ * 让浅色背景上的灰色文字变得黑白分明，大幅提升 OCR 识别率
+ * @returns {Image|null} 增强后的图像，失败返回 null
+ */
+function enhanceContrast(screenImg) {
+    try {
+        let Imgproc = org.opencv.imgproc.Imgproc;
+        let Mat = org.opencv.core.Mat;
+
+        let srcMat = screenImg.mat;
+        let gray = new Mat();
+        Imgproc.cvtColor(srcMat, gray, Imgproc.COLOR_BGR2GRAY);
+
+        // CLAHE: clipLimit 控制对比度放大倍数，tileGridSize 控制局部区域大小
+        let clahe = Imgproc.createCLAHE(3.0, new org.opencv.core.Size(8, 8));
+        let enhanced = new Mat();
+        clahe.apply(gray, enhanced);
+
+        // 转回 BGR（OCR 引擎可能需要彩色输入）
+        let bgr = new Mat();
+        Imgproc.cvtColor(enhanced, bgr, Imgproc.COLOR_GRAY2BGR);
+
+        // Mat -> 临时文件 -> AutoJS Image（规避 ImageWrapper 构造兼容问题）
+        let tempPath = files.cwd() + "/_ocr_enhanced.jpg";
+        org.opencv.imgcodecs.Imgcodecs.imwrite(tempPath, bgr);
+        let resultImg = images.read(tempPath);
+
+        gray.release();
+        enhanced.release();
+        bgr.release();
+
+        return resultImg;
+    } catch (e) {
+        console.warn("[CLAHE] 对比度增强失败，使用原图: " + e.message);
+        return null;
+    }
+}
+
+/**
+ * 根据 OCR 文字边界框，计算其上方图标的点击坐标
+ */
+function calculateIconClick(screenImg, textBounds) {
+    if (!textBounds) return null;
+    let left = textBounds.left;
+    let right = textBounds.right;
+    let top = textBounds.top;
+    
+    let clickX = Math.floor((left + right) / 2);
+    let yOffset = screenImg.height * (59.0 / 887.0);
+    let clickY = Math.floor(top - yOffset);
+    
+    return { x: clickX, y: Math.max(0, clickY), score: 1.0 };
+}
+
+/**
+ * HSV 紫底检测
  */
 function detectPurpleRatio(screenImg) {
     let mat = screenImg.mat;
@@ -158,7 +232,6 @@ function detectPurpleRatio(screenImg) {
     let hsv = new org.opencv.core.Mat();
     org.opencv.imgproc.Imgproc.cvtColor(mat, hsv, org.opencv.imgproc.Imgproc.COLOR_BGR2HSV);
     
-    // OpenCV inRange 使用原生的 Java 封装，规避报错
     let lower = new org.opencv.core.Scalar(config.PURPLE_LOWER_HSV[0], config.PURPLE_LOWER_HSV[1], config.PURPLE_LOWER_HSV[2]);
     let upper = new org.opencv.core.Scalar(config.PURPLE_UPPER_HSV[0], config.PURPLE_UPPER_HSV[1], config.PURPLE_UPPER_HSV[2]);
     let mask = new org.opencv.core.Mat();
@@ -168,7 +241,6 @@ function detectPurpleRatio(screenImg) {
     let nonZeroCount = org.opencv.core.Core.countNonZero(mask);
     let totalCount = mask.rows() * mask.cols();
     
-    // 记得主动释放内存，避免 OOM (Scalar 为对象数据类型无需 release，只有 Mat 需要)
     mask.release();
     hsv.release();
     
@@ -179,5 +251,7 @@ function detectPurpleRatio(screenImg) {
 module.exports = {
     loadTemplates: loadTemplates,
     matchFeature: matchFeature,
+    detectOcrText: detectOcrText,
+    calculateIconClick: calculateIconClick,
     detectPurpleRatio: detectPurpleRatio
 };

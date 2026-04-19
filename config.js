@@ -20,10 +20,6 @@ module.exports = {
     // 模板图片存放路径
     TEMPLATE_DIR: "templates/",
     
-    // 参考分辨率宽度 (如果你的模板是在电脑 2560x1600 环境下截得，写 2560)
-    // 脚本会自动基于此基准和当前手机的分辨率算出缩放比
+    // 参考分辨率宽度
     REF_WIDTH: 2560,
-
-    // 可配置使用的引擎： 'TEMPLATE' (缩放版模板匹配，无需 OCR 和 SIFT)
-    DETECT_ENGINE: 'TEMPLATE',
 };

@@ -3,6 +3,7 @@ var AutoRocoBot = require("./src/bot.js");
 function main() {
     console.show();
     console.setPosition(100, 100);
+    
     console.log("=== Auto-Roco Android特征化脚本重构版启动 ===");
     console.log("正在检查权限...");
 
@@ -39,6 +40,8 @@ function main() {
     });
 
     bot.init();
+    // 隐藏控制台悬浮窗，防止 OCR 把控制台文字当成游戏 UI 误识别
+    console.hide();
     bot.run();
 }
 
