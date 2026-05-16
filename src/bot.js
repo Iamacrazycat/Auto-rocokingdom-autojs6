@@ -3,12 +3,19 @@ var vision = require("./vision.js");
 var inputHandler = require("./input.js");
 
 function AutoRocoBot(mode) {
-    this.mode = mode;            // "1" 聚能 | "2" 逃跑 | "3" 智能
-    this.escapeYesTpl = null;    // escape_yes 模板（唯一保留的模板匹配）
-    this.inBattleState = false;
-    this.hitStreak = 0;
-    this.missStreak = 0;
-    this.lastTriggerTime = 0;
+    this.mode = mode; // Keep mode if it's used somewhere else, though we use state machine now
+    this.tpls = {};
+    
+    // 状态机变量
+    this.lastNonOtherState = "非战斗"; // 初始假设为非战斗
+    this.effectiveBattleState = null;   // 锁定当前战斗的有效状态（"有效战斗" 或 "无效战斗"）
+
+    // 坐标缓存（节省算力）
+    this.cachedSkillXLoc = null;
+    this.cachedEscapeBtnLoc = null;
+
+    // 运行控制标志
+    this.isPaused = false;
 }
 
 AutoRocoBot.prototype.init = function () {
@@ -19,8 +26,12 @@ AutoRocoBot.prototype.init = function () {
         exit();
     }
 
-    // 只加载 escape_yes 模板（用于确认弹窗，该模板无杂色，模板匹配可靠）
-    this.escapeYesTpl = vision.loadEscapeYesTemplate();
+    // 预加载所有模板
+    let templatesToLoad = ["chat", "capture", "capture_abandon", "skill_x", "escape_btn", "escape_yes"];
+    templatesToLoad.forEach(name => {
+        this.tpls[name] = vision.loadTemplate(name);
+    });
+
     console.log("初始化完成！当前运行模式:", this.mode);
     sleep(1000);
 };
@@ -29,127 +40,107 @@ AutoRocoBot.prototype.run = function () {
     console.log("-> 启动监控循环...");
 
     while (true) {
+        if (this.isPaused) {
+            sleep(1000);
+            continue;
+        }
+
         let screenImg = captureScreen();
         if (!screenImg) {
             sleep(config.POLL_INTERVAL_MS);
             continue;
         }
 
-        // ---- OCR 识别战斗状态 ----
-        let ocrResults = vision.detectOcrText(screenImg);
-        let combatKeywords = ["更换", "逃跑", "技能", "捕捉", "背包", "聚能"];
-        let matchedKeywords = 0;
-        let matchedNames = [];
-        let ocrMap = {};
+        // ---- 1. 匹配模板确定当前状态 ----
+        let detectedState = "其他";
+        
+        // 依次匹配，确定当前界面状态
+        let chatMatch = vision.matchTemplateWithScales(screenImg, this.tpls["chat"], config.TEMPLATE_MATCH_THRESHOLD);
+        if (chatMatch) {
+            detectedState = "非战斗";
+        } else {
+            let abandonMatch = vision.matchTemplateWithScales(screenImg, this.tpls["capture_abandon"], config.TEMPLATE_MATCH_THRESHOLD, true);
+            let captureMatch = vision.matchTemplateWithScales(screenImg, this.tpls["capture"], config.TEMPLATE_MATCH_THRESHOLD, true);
 
-        if (ocrResults && ocrResults.length > 0) {
-            let allTexts = ocrResults.map(r => r.text);
-            console.verbose(`[OCR] 共${ocrResults.length}条: ${allTexts.join(" | ")}`);
+            if (abandonMatch && captureMatch) {
+                // 两者都匹配到了，比较得分
+                if (abandonMatch.score >= captureMatch.score) {
+                    detectedState = "有效战斗";
+                } else {
+                    detectedState = "无效战斗";
+                }
+            } else if (abandonMatch) {
+                detectedState = "有效战斗";
+            } else if (captureMatch) {
+                detectedState = "无效战斗";
+            }
+        }
 
-            ocrResults.forEach(res => {
-                combatKeywords.forEach(kw => {
-                    if (res.text.indexOf(kw) !== -1 && !ocrMap[kw]) {
-                        matchedKeywords++;
-                        matchedNames.push(kw);
-                        ocrMap[kw] = res.bounds;
+        console.verbose(`[状态检测] 当前检测状态: ${detectedState} | 上次非其他状态: ${this.lastNonOtherState} | 锁定战斗状态: ${this.effectiveBattleState || "无"}`);
+
+        // ---- 2. 向上追溯与状态锁定逻辑 ----
+        if (detectedState === "有效战斗" || detectedState === "无效战斗") {
+            // 如果上一次非其他状态是“非战斗”，说明刚刚进入战斗，锁定当前战斗状态为第一次检测到的状态
+            if (this.lastNonOtherState === "非战斗") {
+                this.effectiveBattleState = detectedState;
+                console.log(`[状态机] 从非战斗进入战斗，锁定有效战斗状态为: ${this.effectiveBattleState}`);
+            }
+
+            // 根据锁定的有效战斗状态执行动作
+            if (this.effectiveBattleState === "有效战斗") {
+                let loc = this.cachedSkillXLoc || vision.matchTemplateWithScales(screenImg, this.tpls["skill_x"], config.TEMPLATE_MATCH_THRESHOLD);
+                if (loc) {
+                    if (!this.cachedSkillXLoc) {
+                        this.cachedSkillXLoc = loc;
+                        console.log("-> 首次匹配 skill_x 成功，已持久化坐标");
                     }
-                });
-            });
+                    console.log("-> 匹配到有效战斗，执行 [技能点击]");
+                    inputHandler.clickSkillX(loc);
+                } else {
+                    console.verbose("-> 有效战斗，但未找到 skill_x 模板");
+                }
+            } else if (this.effectiveBattleState === "无效战斗") {
+                let loc = this.cachedEscapeBtnLoc || vision.matchTemplateWithScales(screenImg, this.tpls["escape_btn"], config.TEMPLATE_MATCH_THRESHOLD);
+                if (loc) {
+                    if (!this.cachedEscapeBtnLoc) {
+                        this.cachedEscapeBtnLoc = loc;
+                        console.log("-> 首次匹配 escape_btn 成功，已持久化坐标");
+                    }
+                    console.log("-> 匹配到无效战斗，执行 [逃跑点击]");
+                    inputHandler.clickEscape(loc);
+                    sleep(1000); // 等待确认弹窗
 
-            if (matchedKeywords > 0) {
-                console.verbose(`[OCR 命中] ${matchedNames.join(", ")} (${matchedKeywords}/${combatKeywords.length})`);
+                    let confirmScreen = captureScreen();
+                    if (confirmScreen) {
+                        let yesLoc = vision.matchTemplateWithScales(confirmScreen, this.tpls["escape_yes"], config.ESCAPE_YES_THRESHOLD);
+                        if (yesLoc) {
+                            console.log("-> 找到逃跑确认按钮，执行 [确认点击]");
+                            inputHandler.clickConfirmYes(yesLoc);
+                        } else {
+                            console.warn("-> 未找到逃跑确认(是)按钮");
+                        }
+                        confirmScreen.recycle();
+                    }
+                    sleep(2000); // 等待逃跑动画
+                } else {
+                    console.verbose("-> 无效战斗，但未找到 escape_btn 模板");
+                }
+            }
+        } else if (detectedState === "非战斗") {
+            // 回到非战斗界面，重置战斗锁定状态
+            if (this.effectiveBattleState !== null) {
+                console.log("[状态机] 检测到非战斗状态，重置锁定战斗状态");
+                this.effectiveBattleState = null;
             }
         }
 
-        // ---- 状态机 ----
-        let detected = (matchedKeywords >= config.OCR_COMBAT_THRESHOLD);
-
-        if (detected) {
-            this.hitStreak++;
-            this.missStreak = 0;
-        } else {
-            this.hitStreak = 0;
-            this.missStreak++;
-        }
-
-        if (!this.inBattleState) {
-            this.inBattleState = (this.hitStreak >= config.REQUIRED_HITS);
-        } else {
-            if (this.missStreak >= config.RELEASE_MISSES) {
-                this.inBattleState = false;
-            }
-        }
-
-        // ---- 执行动作 ----
-        let now = new Date().getTime();
-        if (this.inBattleState && (now - this.lastTriggerTime >= config.TRIGGER_COOLDOWN_MS)) {
-            this.decideAndAct(screenImg, ocrMap);
-            this.lastTriggerTime = now;
-        } else {
-            console.verbose(`[轮询] 战斗:${this.inBattleState} | OCR命中:${matchedKeywords} | 连续命中:${this.hitStreak} | 连续丢失:${this.missStreak}`);
+        // ---- 3. 维持上一次非其他状态记录 ----
+        if (detectedState !== "其他") {
+            this.lastNonOtherState = detectedState;
         }
 
         screenImg.recycle();
         sleep(config.POLL_INTERVAL_MS);
-    }
-};
-
-AutoRocoBot.prototype.decideAndAct = function (screenImg, ocrMap) {
-    var currentAction = this.mode;
-
-    // 智能模式：通过紫底比例判断聚能还是逃跑
-    if (this.mode === "3") {
-        let ratio = vision.detectPurpleRatio(screenImg);
-        console.log(`[Smart] 紫底比例: ${ratio.toFixed(4)} (阈值: ${config.SMART_MODE_PURPLE_RATIO_THRESHOLD})`);
-
-        if (ratio >= config.SMART_MODE_PURPLE_RATIO_THRESHOLD) {
-            console.log("-> 紫底匹配 -> 执行[聚能]");
-            currentAction = "1";
-        } else {
-            console.log("-> 非紫底 -> 执行[逃跑]");
-            currentAction = "2";
-        }
-    }
-
-    if (currentAction === "1") {
-        // 聚能：通过 OCR 定位「聚能」或「技能」文字上方的图标
-        let bounds = ocrMap["聚能"] || ocrMap["技能"];
-        if (bounds) {
-            let loc = vision.calculateIconClick(screenImg, bounds);
-            if (loc) inputHandler.clickSkillX(loc);
-        } else {
-            console.warn("[聚能] OCR 未找到 '聚能/技能' 文字");
-        }
-
-    } else if (currentAction === "2") {
-        // 逃跑：通过 OCR 定位「逃跑」文字上方的图标
-        let bounds = ocrMap["逃跑"];
-        if (bounds) {
-            let loc = vision.calculateIconClick(screenImg, bounds);
-            if (loc) {
-                inputHandler.clickEscape(loc);
-                sleep(1000);
-
-                // 确认弹窗：使用模板匹配找「是」按钮
-                let confirmScreen = captureScreen();
-                if (confirmScreen) {
-                    let yesLoc = vision.matchEscapeYes(confirmScreen, this.escapeYesTpl);
-                    if (yesLoc) {
-                        inputHandler.clickConfirmYes(yesLoc);
-                        console.log("[逃跑] 成功，重置战斗状态");
-                        this.inBattleState = false;
-                        this.hitStreak = 0;
-                        this.missStreak = 0;
-                    } else {
-                        console.warn("[逃跑] 未找到确认'是'按钮");
-                    }
-                    confirmScreen.recycle();
-                }
-                sleep(3000); // 等待逃跑动画过渡
-            }
-        } else {
-            console.warn("[逃跑] OCR 未找到 '逃跑' 文字，跳过本轮");
-        }
     }
 };
 

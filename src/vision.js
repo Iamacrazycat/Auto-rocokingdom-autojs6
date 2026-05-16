@@ -1,89 +1,135 @@
 var config = require("../config.js");
 
-// ==================== OCR 识别 ====================
+// ==================== 辅助函数 ====================
 
-/**
- * OCR 文字提取（带 CLAHE 对比度增强预处理）
- * 解决浅色背景下灰色文字识别率低的问题
- */
-function detectOcrText(screenImg) {
-    let results = [];
-    try {
-        let processedImg = enhanceContrast(screenImg);
-        let targetImg = processedImg || screenImg;
+function getHsvBounds(hexColor, hueTol, satTol, valTol) {
+    let value = hexColor.replace("#", "");
+    let r = parseInt(value.substring(0, 2), 16);
+    let g = parseInt(value.substring(2, 4), 16);
+    let b = parseInt(value.substring(4, 6), 16);
 
-        let ocrResults = ocr.detect(targetImg);
-        if (ocrResults && ocrResults.length > 0) {
-            for (let i = 0; i < ocrResults.length; i++) {
-                results.push({
-                    text: ocrResults[i].text,
-                    bounds: ocrResults[i].bounds
-                });
-            }
+    let Imgproc = org.opencv.imgproc.Imgproc;
+    let Mat = org.opencv.core.Mat;
+    let CvType = org.opencv.core.CvType;
+    let bgrMat = new Mat(1, 1, CvType.CV_8UC3, new org.opencv.core.Scalar(b, g, r));
+
+    let hsvMat = new Mat();
+    Imgproc.cvtColor(bgrMat, hsvMat, Imgproc.COLOR_BGR2HSV);
+    let hsv = hsvMat.get(0, 0); // [h, s, v]
+
+    let bounds = [];
+    let hMin = hsv[0] - hueTol;
+    let hMax = hsv[0] + hueTol;
+    let sMin = Math.max(0, hsv[1] - satTol);
+    let vMin = Math.max(0, hsv[2] - valTol);
+
+    if (hMin < 0) {
+        bounds.push({
+            lower: new org.opencv.core.Scalar(0, sMin, vMin),
+            upper: new org.opencv.core.Scalar(hMax, 255, 255)
+        });
+        bounds.push({
+            lower: new org.opencv.core.Scalar(180 + hMin, sMin, vMin),
+            upper: new org.opencv.core.Scalar(179, 255, 255)
+        });
+    } else if (hMax > 179) {
+        bounds.push({
+            lower: new org.opencv.core.Scalar(hMin, sMin, vMin),
+            upper: new org.opencv.core.Scalar(179, 255, 255)
+        });
+        bounds.push({
+            lower: new org.opencv.core.Scalar(0, sMin, vMin),
+            upper: new org.opencv.core.Scalar(hMax - 180, 255, 255)
+        });
+    } else {
+        bounds.push({
+            lower: new org.opencv.core.Scalar(hMin, sMin, vMin),
+            upper: new org.opencv.core.Scalar(hMax, 255, 255)
+        });
+    }
+
+    console.verbose(`[HSV Marker] hexColor:${hexColor} -> bgr:(${b},${g},${r}) -> hsv:(${hsv[0].toFixed(1)},${hsv[1].toFixed(1)},${hsv[2].toFixed(1)})`);
+
+    bgrMat.release();
+    hsvMat.release();
+    return bounds;
+}
+
+function applyHsvBounds(hsvMat, boundsArr) {
+    let Core = org.opencv.core.Core;
+    let Mat = org.opencv.core.Mat;
+    let finalMask = new Mat();
+    
+    for (let i = 0; i < boundsArr.length; i++) {
+        let mask = new Mat();
+        Core.inRange(hsvMat, boundsArr[i].lower, boundsArr[i].upper, mask);
+        if (i === 0) {
+            mask.copyTo(finalMask);
+        } else {
+            let combined = new Mat();
+            Core.bitwise_or(finalMask, mask, combined);
+            combined.copyTo(finalMask);
+            combined.release();
         }
-
-        if (processedImg) processedImg.recycle();
-    } catch (e) {
-        console.error("[OCR] 识别出错: " + e.message);
+        mask.release();
     }
-    return results;
+    return finalMask;
 }
 
-/**
- * CLAHE 自适应直方图均衡化：增强局部对比度
- */
-function enhanceContrast(screenImg) {
-    try {
-        let Imgproc = org.opencv.imgproc.Imgproc;
-        let Mat = org.opencv.core.Mat;
+function calcMarkerScore(targetBgr, tplBgr, boundsArr) {
+    let Imgproc = org.opencv.imgproc.Imgproc;
+    let Core = org.opencv.core.Core;
+    let Mat = org.opencv.core.Mat;
 
-        let srcMat = screenImg.mat;
-        let gray = new Mat();
-        Imgproc.cvtColor(srcMat, gray, Imgproc.COLOR_BGR2GRAY);
+    let targetHsv = new Mat();
+    let targetRgb3 = new Mat();
+    if (targetBgr.channels() === 4) Imgproc.cvtColor(targetBgr, targetRgb3, Imgproc.COLOR_RGBA2RGB);
+    else targetBgr.copyTo(targetRgb3);
+    Imgproc.cvtColor(targetRgb3, targetHsv, Imgproc.COLOR_RGB2HSV);
+    let targetMask = applyHsvBounds(targetHsv, boundsArr);
 
-        let clahe = Imgproc.createCLAHE(3.0, new org.opencv.core.Size(8, 8));
-        let enhanced = new Mat();
-        clahe.apply(gray, enhanced);
+    let tplHsv = new Mat();
+    let tplRgb3 = new Mat();
+    if (tplBgr.channels() === 4) Imgproc.cvtColor(tplBgr, tplRgb3, Imgproc.COLOR_RGBA2RGB);
+    else tplBgr.copyTo(tplRgb3);
+    Imgproc.cvtColor(tplRgb3, tplHsv, Imgproc.COLOR_RGB2HSV);
+    let tplMask = applyHsvBounds(tplHsv, boundsArr);
 
-        let bgr = new Mat();
-        Imgproc.cvtColor(enhanced, bgr, Imgproc.COLOR_GRAY2BGR);
+    let templatePixels = Core.countNonZero(tplMask);
+    let targetPixels = Core.countNonZero(targetMask);
+    let score = 0.0;
 
-        let tempPath = files.cwd() + "/_ocr_enhanced.jpg";
-        org.opencv.imgcodecs.Imgcodecs.imwrite(tempPath, bgr);
-        let resultImg = images.read(tempPath);
-
-        gray.release();
-        enhanced.release();
-        bgr.release();
-
-        return resultImg;
-    } catch (e) {
-        console.warn("[CLAHE] 对比度增强失败，使用原图: " + e.message);
-        return null;
+    if (templatePixels === 0) {
+        score = targetPixels <= config.MARKER_MAX_EXTRA_PIXELS ? 1.0 : 0.0;
+    } else {
+        let intersection = new Mat();
+        Core.bitwise_and(targetMask, tplMask, intersection);
+        score = Core.countNonZero(intersection) / templatePixels;
+        intersection.release();
     }
+
+    targetRgb3.release();
+    targetMask.release();
+    targetHsv.release();
+    tplRgb3.release();
+    tplMask.release();
+    tplHsv.release();
+
+    return {
+        score: score,
+        targetPx: targetPixels,
+        tplPx: templatePixels
+    };
 }
 
-/**
- * 根据 OCR 文字边界框，计算其上方图标的点击坐标
- */
-function calculateIconClick(screenImg, textBounds) {
-    if (!textBounds) return null;
-
-    let clickX = Math.floor((textBounds.left + textBounds.right) / 2);
-    let yOffset = screenImg.height * (59.0 / 887.0);
-    let clickY = Math.floor(textBounds.top - yOffset);
-
-    return { x: clickX, y: Math.max(0, clickY), score: 1.0 };
-}
-
-// ==================== 模板匹配（仅 escape_yes） ====================
+// ==================== 模板匹配 ====================
 
 /**
- * 加载 escape_yes 模板（灰度预处理）
+ * 加载模板（同时保留 BGR 和 GRAY）
  */
-function loadEscapeYesTemplate() {
+function loadTemplate(name) {
     let dir = files.cwd() + "/" + config.TEMPLATE_DIR;
-    let candidates = ["escape_yes.png", "escape_yes.jpg"];
+    let candidates = [name + ".png", name + ".jpg"];
 
     for (let i = 0; i < candidates.length; i++) {
         let path = dir + candidates[i];
@@ -93,10 +139,15 @@ function loadEscapeYesTemplate() {
                 let Imgproc = org.opencv.imgproc.Imgproc;
                 let processed = new org.opencv.core.Mat();
                 Imgproc.cvtColor(img.mat, processed, Imgproc.COLOR_BGR2GRAY);
-                console.verbose("加载了 escape_yes 模板 (GRAY)");
+                
+                let bgrMat = new org.opencv.core.Mat();
+                img.mat.copyTo(bgrMat);
+
+                console.verbose("加载了模板: " + name);
                 return {
-                    name: "escape_yes",
-                    mat: processed,
+                    name: name,
+                    mat: processed,   // GRAY
+                    bgrMat: bgrMat,   // BGR (用于HSV特征过滤)
                     width: img.width,
                     height: img.height,
                     original: img
@@ -104,15 +155,15 @@ function loadEscapeYesTemplate() {
             }
         }
     }
-    console.warn("[模板] 未找到 escape_yes 模板文件");
+    console.warn("[模板] 未找到模板文件: " + name);
     return null;
 }
 
 /**
- * 对 escape_yes 执行多缩放比灰度模板匹配
+ * 对模板执行多缩放比模板匹配，并可选使用 HSV Marker 过滤
  */
-function matchEscapeYes(screenImg, tpl) {
-    if (!tpl || !tpl.mat) return null;
+function matchTemplateWithScales(screenImg, tpl, threshold, useHsvMarker = false) {
+    if (!tpl || !tpl.mat || !screenImg) return null;
 
     let Imgproc = org.opencv.imgproc.Imgproc;
     let Core = org.opencv.core.Core;
@@ -132,7 +183,14 @@ function matchEscapeYes(screenImg, tpl) {
     let screenGray = new Mat();
     Imgproc.cvtColor(screenImg.mat, screenGray, Imgproc.COLOR_BGR2GRAY);
 
+    let bestMatch = null;
+
     try {
+        let hsvBounds = null;
+        if (useHsvMarker) {
+            hsvBounds = getHsvBounds(config.MARKER_COLOR, config.MARKER_HUE_TOL, config.MARKER_SAT_TOL, config.MARKER_VAL_TOL);
+        }
+
         for (let scale of uniqueScales) {
             let scaledMat;
             let isScaled = Math.abs(scale - 1.0) > 0.05;
@@ -153,65 +211,64 @@ function matchEscapeYes(screenImg, tpl) {
             let mmr = Core.minMaxLoc(result);
             result.release();
 
-            if (mmr.maxVal >= config.ESCAPE_YES_THRESHOLD) {
+            if (mmr.maxVal >= threshold) {
                 let pt = mmr.maxLoc;
                 let w = isScaled ? scaledMat.cols() : tpl.width;
                 let h = isScaled ? scaledMat.rows() : tpl.height;
+                
+                let isMatched = true;
+                let markerInfo = null;
 
-                console.verbose("[模板匹配] escape_yes 缩放(x" + scale.toFixed(2) + ") 得分:" + mmr.maxVal.toFixed(3));
-                if (isScaled) scaledMat.release();
-                screenGray.release();
-                return {
-                    x: pt.x + Math.floor(w / 2),
-                    y: pt.y + Math.floor(h / 2),
-                    score: mmr.maxVal
-                };
+                if (useHsvMarker) {
+                    let Rect = org.opencv.core.Rect;
+                    let targetCrop = new Mat(screenImg.mat, new Rect(pt.x, pt.y, w, h));
+                    
+                    let tplColorScaled = new Mat();
+                    if (isScaled) {
+                        let sz = new org.opencv.core.Size(w, h);
+                        Imgproc.resize(tpl.bgrMat, tplColorScaled, sz, 0, 0, Imgproc.INTER_AREA || 3);
+                    } else {
+                        tpl.bgrMat.copyTo(tplColorScaled);
+                    }
+
+                    markerInfo = calcMarkerScore(targetCrop, tplColorScaled, hsvBounds);
+                    
+                    targetCrop.release();
+                    tplColorScaled.release();
+
+                    if (markerInfo.score < config.MARKER_SCORE_THRESHOLD) {
+                        isMatched = false;
+                    }
+                }
+
+                if (isMatched) {
+                    if (!bestMatch || mmr.maxVal > bestMatch.score) {
+                        bestMatch = {
+                            x: pt.x + Math.floor(w / 2),
+                            y: pt.y + Math.floor(h / 2),
+                            score: mmr.maxVal,
+                            markerScore: markerInfo ? markerInfo.score : 1.0,
+                            matched: true
+                        };
+                        console.verbose(`[模板匹配] ${tpl.name} x${scale.toFixed(2)} 得分:${mmr.maxVal.toFixed(3)}` + 
+                            (markerInfo ? ` marker:${markerInfo.score.toFixed(3)} px:${markerInfo.targetPx}/${markerInfo.tplPx}` : ""));
+                    }
+                } else if (markerInfo) {
+                    console.verbose(`[模板匹配] ${tpl.name} x${scale.toFixed(2)} 得分:${mmr.maxVal.toFixed(3)} 拦截 (marker:${markerInfo.score.toFixed(3)})`);
+                }
             }
             if (isScaled) scaledMat.release();
         }
     } catch (e) {
-        console.error("[模板匹配] escape_yes 出错: " + e.message);
+        console.error("[模板匹配] " + tpl.name + " 出错: " + e.message);
     }
     screenGray.release();
-    return null;
-}
-
-// ==================== HSV 紫底检测 ====================
-
-/**
- * 检测屏幕紫色区域占比
- */
-function detectPurpleRatio(screenImg) {
-    let mat = screenImg.mat;
-    if (!mat) return 0;
-
-    let Imgproc = org.opencv.imgproc.Imgproc;
-    let Core = org.opencv.core.Core;
-
-    let hsv = new org.opencv.core.Mat();
-    Imgproc.cvtColor(mat, hsv, Imgproc.COLOR_BGR2HSV);
-
-    let lower = new org.opencv.core.Scalar(config.PURPLE_LOWER_HSV[0], config.PURPLE_LOWER_HSV[1], config.PURPLE_LOWER_HSV[2]);
-    let upper = new org.opencv.core.Scalar(config.PURPLE_UPPER_HSV[0], config.PURPLE_UPPER_HSV[1], config.PURPLE_UPPER_HSV[2]);
-    let mask = new org.opencv.core.Mat();
-
-    Core.inRange(hsv, lower, upper, mask);
-
-    let nonZero = Core.countNonZero(mask);
-    let total = mask.rows() * mask.cols();
-
-    mask.release();
-    hsv.release();
-
-    return total === 0 ? 0 : nonZero / total;
+    return bestMatch;
 }
 
 // ==================== 导出 ====================
 
 module.exports = {
-    detectOcrText: detectOcrText,
-    calculateIconClick: calculateIconClick,
-    loadEscapeYesTemplate: loadEscapeYesTemplate,
-    matchEscapeYes: matchEscapeYes,
-    detectPurpleRatio: detectPurpleRatio
+    loadTemplate: loadTemplate,
+    matchTemplateWithScales: matchTemplateWithScales
 };
