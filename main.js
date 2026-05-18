@@ -62,6 +62,7 @@ ui.layout(
 // 初始化 UI 数据
 ui.input_poll.setText(storage.get("POLL_INTERVAL_MS", 3000).toString());
 ui.input_threshold.setText(storage.get("TEMPLATE_MATCH_THRESHOLD", 0.7).toString());
+ui.sp_mode.setSelection(storage.get("LAST_MODE_INDEX", 2)); // 默认选择“智能模式”(索引2)
 
 // 权限状态更新
 function updatePermissionStatus() {
@@ -109,6 +110,7 @@ ui.btn_float.click(() => {
 ui.btn_save.click(() => {
     storage.put("POLL_INTERVAL_MS", parseInt(ui.input_poll.text()) || 3000);
     storage.put("TEMPLATE_MATCH_THRESHOLD", parseFloat(ui.input_threshold.text()) || 0.7);
+    storage.put("LAST_MODE_INDEX", ui.sp_mode.getSelectedItemPosition());
     toastLog("配置已保存");
 });
 

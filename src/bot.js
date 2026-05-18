@@ -65,17 +65,23 @@ AutoRocoBot.prototype.run = function () {
             let abandonMatch = vision.matchTemplateWithScales(screenImg, this.tpls["capture_abandon"], config.TEMPLATE_MATCH_THRESHOLD, true);
             let captureMatch = vision.matchTemplateWithScales(screenImg, this.tpls["capture"], config.TEMPLATE_MATCH_THRESHOLD, true);
 
+            let bestMatch = null;
             if (abandonMatch && captureMatch) {
-                // 两者都匹配到了，比较得分
-                if (abandonMatch.score >= captureMatch.score) {
+                bestMatch = abandonMatch.score > captureMatch.score ? abandonMatch : captureMatch;
+            } else if (abandonMatch) {
+                bestMatch = abandonMatch;
+            } else if (captureMatch) {
+                bestMatch = captureMatch;
+            }
+
+            if (bestMatch) {
+                // 只要选出了最优的形状匹配，直接看它区域内的红色像素数量 (targetPx)
+                // 如果含有大量红色像素 (> 30)，不管是哪个模板匹配上的，都说明是红色的污染精灵
+                if (bestMatch.targetPx > config.MARKER_MAX_EXTRA_PIXELS) {
                     detectedState = "有效战斗";
                 } else {
                     detectedState = "无效战斗";
                 }
-            } else if (abandonMatch) {
-                detectedState = "有效战斗";
-            } else if (captureMatch) {
-                detectedState = "无效战斗";
             }
         }
 
@@ -114,8 +120,8 @@ AutoRocoBot.prototype.run = function () {
                     console.log("-> 匹配到无效战斗，执行 [逃跑点击]");
                     inputHandler.clickEscape(loc);
                     
-                    // 额外增加的延迟，等待逃跑确认弹窗完全弹出
-                    sleep(1500); 
+                    // 额外增加的延迟，等待逃跑确认弹窗完全弹出（由于有坐标缓存，可以适当缩短）
+                    sleep(500); 
 
                     let yesLoc = this.cachedEscapeYesLoc;
                     if (!yesLoc) {

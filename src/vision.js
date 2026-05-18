@@ -237,7 +237,8 @@ function matchTemplateWithScales(screenImg, tpl, threshold, useHsvMarker = false
                     tplColorScaled.release();
 
                     if (markerInfo.score < config.MARKER_SCORE_THRESHOLD) {
-                        isMatched = false;
+                        // 标记为低特征分数，但不直接拦截，交由上层逻辑判断
+                        // isMatched = false;
                     }
                 }
 
@@ -248,13 +249,13 @@ function matchTemplateWithScales(screenImg, tpl, threshold, useHsvMarker = false
                             y: pt.y + Math.floor(h / 2),
                             score: mmr.maxVal,
                             markerScore: markerInfo ? markerInfo.score : 1.0,
+                            targetPx: markerInfo ? markerInfo.targetPx : 0,
+                            tplPx: markerInfo ? markerInfo.tplPx : 0,
                             matched: true
                         };
                         console.verbose(`[模板匹配] ${tpl.name} x${scale.toFixed(2)} 得分:${mmr.maxVal.toFixed(3)}` + 
                             (markerInfo ? ` marker:${markerInfo.score.toFixed(3)} px:${markerInfo.targetPx}/${markerInfo.tplPx}` : ""));
                     }
-                } else if (markerInfo) {
-                    console.verbose(`[模板匹配] ${tpl.name} x${scale.toFixed(2)} 得分:${mmr.maxVal.toFixed(3)} 拦截 (marker:${markerInfo.score.toFixed(3)})`);
                 }
             }
             if (isScaled) scaledMat.release();
