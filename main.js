@@ -36,18 +36,11 @@ ui.layout(
                         <text text="模板匹配阈值:" w="120" gravity="center_vertical"/>
                         <input id="input_threshold" inputType="numberDecimal" text="0.7" w="*"/>
                     </horizontal>
-
-                    <horizontal margin="0 4">
-                        <text text="基准屏幕宽度:" w="120" gravity="center_vertical"/>
-                        <input id="input_width" inputType="number" text="2772" w="*"/>
-                    </horizontal>
-
-                    <horizontal margin="0 4">
-                        <text text="基准屏幕高度:" w="120" gravity="center_vertical"/>
-                        <input id="input_height" inputType="number" text="1280" w="*"/>
-                    </horizontal>
                     
-                    <button id="btn_save" text="保存配置" margin="0 8 0 0"/>
+                    <horizontal margin="0 8 0 0">
+                        <button id="btn_save" text="保存配置" w="0" layout_weight="1"/>
+                        <button id="btn_clear_cache" text="清除坐标缓存" w="0" layout_weight="1" style="Widget.AppCompat.Button.Colored" bg="#FF9800"/>
+                    </horizontal>
                 </vertical>
             </card>
 
@@ -59,7 +52,6 @@ ui.layout(
                         <spinner id="sp_mode" entries="1: 聚能模式|2: 逃跑模式|3: 智能模式" w="*"/>
                     </horizontal>
                     <button id="btn_start" text="启动脚本" style="Widget.AppCompat.Button.Colored" bg="#4CAF50"/>
-                    <button id="btn_stop" text="停止脚本" style="Widget.AppCompat.Button.Colored" bg="#F44336"/>
                 </vertical>
             </card>
             
@@ -70,8 +62,33 @@ ui.layout(
 // 初始化 UI 数据
 ui.input_poll.setText(storage.get("POLL_INTERVAL_MS", 3000).toString());
 ui.input_threshold.setText(storage.get("TEMPLATE_MATCH_THRESHOLD", 0.7).toString());
-ui.input_width.setText(storage.get("REF_WIDTH", 2772).toString());
-ui.input_height.setText(storage.get("REF_HEIGHT", 1280).toString());
+
+// 权限状态更新
+function updatePermissionStatus() {
+    if (auto.service) {
+        ui.btn_acc.setText("无障碍服务 (已开启)");
+        ui.btn_acc.attr("bg", "#4CAF50");
+    } else {
+        ui.btn_acc.setText("开启无障碍服务 (未开启)");
+        ui.btn_acc.attr("bg", "#F44336");
+    }
+
+    if (android.provider.Settings.canDrawOverlays(context)) {
+        ui.btn_float.setText("悬浮窗权限 (已开启)");
+        ui.btn_float.attr("bg", "#4CAF50");
+    } else {
+        ui.btn_float.setText("开启悬浮窗权限 (未开启)");
+        ui.btn_float.attr("bg", "#F44336");
+    }
+}
+
+// 每次界面恢复时刷新权限状态
+ui.emitter.on("resume", function() {
+    updatePermissionStatus();
+});
+
+// 初始化刷新一次
+updatePermissionStatus();
 
 // 权限引导
 ui.btn_acc.click(() => {
@@ -92,9 +109,15 @@ ui.btn_float.click(() => {
 ui.btn_save.click(() => {
     storage.put("POLL_INTERVAL_MS", parseInt(ui.input_poll.text()) || 3000);
     storage.put("TEMPLATE_MATCH_THRESHOLD", parseFloat(ui.input_threshold.text()) || 0.7);
-    storage.put("REF_WIDTH", parseInt(ui.input_width.text()) || 2772);
-    storage.put("REF_HEIGHT", parseInt(ui.input_height.text()) || 1280);
     toastLog("配置已保存");
+});
+
+// 清除坐标缓存
+ui.btn_clear_cache.click(() => {
+    storage.remove("loc_skill_x");
+    storage.remove("loc_escape_btn");
+    storage.remove("loc_escape_yes");
+    toastLog("坐标缓存已清除，下一次将重新匹配模板");
 });
 
 // 运行控制
@@ -123,72 +146,16 @@ ui.btn_start.click(() => {
     let modeValue = (modeIndex + 1).toString(); // "1", "2" 或 "3"
 
     botThread = threads.start(function() {
-        // 创建悬浮窗
-        var w = floaty.window(
-            <frame>
-                <vertical bg="#cc000000" padding="8" cornerRadius="8">
-                    <text id="drag" text="≡ 拖动 ≡" textColor="#ffffff" gravity="center" textSize="12sp" w="*"/>
-                    <button id="btn_toggle" text="暂停" margin="0 4" h="40" textSize="14sp"/>
-                    <button id="btn_close" text="关闭" margin="0 4" h="40" textSize="14sp"/>
-                </vertical>
-            </frame>
-        );
-
-        w.setPosition(100, 100);
-
-        // 拖动逻辑
-        var wx, wy, tx, ty;
-        w.drag.setOnTouchListener(function(view, event) {
-            switch (event.getAction()) {
-                case event.ACTION_DOWN:
-                    wx = event.getRawX();
-                    wy = event.getRawY();
-                    tx = w.getX();
-                    ty = w.getY();
-                    return true;
-                case event.ACTION_MOVE:
-                    w.setPosition(tx + (event.getRawX() - wx), ty + (event.getRawY() - wy));
-                    return true;
-            }
-            return true;
-        });
-
         console.log("=== Auto-Roco 启动 ===");
         
+        let FloatyManager = require("./src/floaty_manager.js");
         let bot = new AutoRocoBot(modeValue);
 
-        // 暂停/继续切换
-        w.btn_toggle.click(() => {
-            bot.isPaused = !bot.isPaused;
-            if (bot.isPaused) {
-                ui.run(() => w.btn_toggle.setText("继续"));
-                toastLog("已暂停挂机，点击继续恢复");
-            } else {
-                ui.run(() => w.btn_toggle.setText("暂停"));
-                toastLog("已恢复挂机");
-            }
-        });
-
-        // 关闭悬浮窗与脚本
-        w.btn_close.click(() => {
-            toastLog("脚本已从悬浮窗关闭");
-            w.close();
-            botThread.interrupt();
-            botThread = null;
-        });
+        // 初始化悬浮窗并绑定 bot 状态
+        FloatyManager.init(bot, botThread);
 
         bot.init();
         bot.run();
     });
     toastLog("脚本已启动");
-});
-
-ui.btn_stop.click(() => {
-    if (botThread && botThread.isAlive()) {
-        botThread.interrupt();
-        botThread = null;
-        toastLog("脚本已停止");
-    } else {
-        toastLog("脚本未运行");
-    }
 });

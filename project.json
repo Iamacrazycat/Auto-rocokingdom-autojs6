@@ -1,6 +1,6 @@
 {
-  "name": "Auto-rocokingdom-autojs",
-  "versionName": "1.0.0",
+  "name": "洛克助手",
+  "versionName": "0.1.0",
   "versionCode": 1,
   "packageName": "org.autojs.example.autorocokingdom",
   "main": "main.js",

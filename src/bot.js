@@ -2,6 +2,8 @@ var config = require("../config.js");
 var vision = require("./vision.js");
 var inputHandler = require("./input.js");
 
+var storage = storages.create("auto_roco_config");
+
 function AutoRocoBot(mode) {
     this.mode = mode; // Keep mode if it's used somewhere else, though we use state machine now
     this.tpls = {};
@@ -10,9 +12,10 @@ function AutoRocoBot(mode) {
     this.lastNonOtherState = "非战斗"; // 初始假设为非战斗
     this.effectiveBattleState = null;   // 锁定当前战斗的有效状态（"有效战斗" 或 "无效战斗"）
 
-    // 坐标缓存（节省算力）
-    this.cachedSkillXLoc = null;
-    this.cachedEscapeBtnLoc = null;
+    // 从本地存储加载持久化的坐标
+    this.cachedSkillXLoc = storage.get("loc_skill_x", null);
+    this.cachedEscapeBtnLoc = storage.get("loc_escape_btn", null);
+    this.cachedEscapeYesLoc = storage.get("loc_escape_yes", null);
 
     // 运行控制标志
     this.isPaused = false;
@@ -92,7 +95,8 @@ AutoRocoBot.prototype.run = function () {
                 if (loc) {
                     if (!this.cachedSkillXLoc) {
                         this.cachedSkillXLoc = loc;
-                        console.log("-> 首次匹配 skill_x 成功，已持久化坐标");
+                        storage.put("loc_skill_x", loc);
+                        console.log("-> 首次匹配 skill_x 成功，已持久化坐标至本地");
                     }
                     console.log("-> 匹配到有效战斗，执行 [技能点击]");
                     inputHandler.clickSkillX(loc);
@@ -104,23 +108,36 @@ AutoRocoBot.prototype.run = function () {
                 if (loc) {
                     if (!this.cachedEscapeBtnLoc) {
                         this.cachedEscapeBtnLoc = loc;
-                        console.log("-> 首次匹配 escape_btn 成功，已持久化坐标");
+                        storage.put("loc_escape_btn", loc);
+                        console.log("-> 首次匹配 escape_btn 成功，已持久化坐标至本地");
                     }
                     console.log("-> 匹配到无效战斗，执行 [逃跑点击]");
                     inputHandler.clickEscape(loc);
-                    sleep(1000); // 等待确认弹窗
+                    
+                    // 额外增加的延迟，等待逃跑确认弹窗完全弹出
+                    sleep(1500); 
 
-                    let confirmScreen = captureScreen();
-                    if (confirmScreen) {
-                        let yesLoc = vision.matchTemplateWithScales(confirmScreen, this.tpls["escape_yes"], config.ESCAPE_YES_THRESHOLD);
-                        if (yesLoc) {
-                            console.log("-> 找到逃跑确认按钮，执行 [确认点击]");
-                            inputHandler.clickConfirmYes(yesLoc);
-                        } else {
-                            console.warn("-> 未找到逃跑确认(是)按钮");
+                    let yesLoc = this.cachedEscapeYesLoc;
+                    if (!yesLoc) {
+                        let confirmScreen = captureScreen();
+                        if (confirmScreen) {
+                            yesLoc = vision.matchTemplateWithScales(confirmScreen, this.tpls["escape_yes"], config.ESCAPE_YES_THRESHOLD);
+                            if (yesLoc) {
+                                this.cachedEscapeYesLoc = yesLoc;
+                                storage.put("loc_escape_yes", yesLoc);
+                                console.log("-> 首次匹配 escape_yes 成功，已持久化坐标至本地");
+                            }
+                            confirmScreen.recycle();
                         }
-                        confirmScreen.recycle();
                     }
+
+                    if (yesLoc) {
+                        console.log("-> 执行 [逃跑确认(是)点击]");
+                        inputHandler.clickConfirmYes(yesLoc);
+                    } else {
+                        console.warn("-> 未找到逃跑确认(是)按钮");
+                    }
+                    
                     sleep(2000); // 等待逃跑动画
                 } else {
                     console.verbose("-> 无效战斗，但未找到 escape_btn 模板");
