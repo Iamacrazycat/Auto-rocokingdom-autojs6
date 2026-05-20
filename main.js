@@ -46,10 +46,33 @@ ui.layout(
 
             <card w="*" h="auto" margin="0 0 0 16" cardElevation="2dp" cardCornerRadius="4dp">
                 <vertical padding="16">
+                    <text text="攻击模式配置" textSize="18sp" textColor="#333333" textStyle="bold" margin="0 0 0 8"/>
+                    
+                    <horizontal margin="0 4">
+                        <text text="自定义攻击 X:" w="120" gravity="center_vertical"/>
+                        <input id="input_custom_x" inputType="number" text="0" w="*"/>
+                    </horizontal>
+                    
+                    <horizontal margin="0 4">
+                        <text text="自定义攻击 Y:" w="120" gravity="center_vertical"/>
+                        <input id="input_custom_y" inputType="number" text="0" w="*"/>
+                    </horizontal>
+
+                    <horizontal margin="0 4">
+                        <text text="后续动作:" gravity="center_vertical" margin="0 0 8 0"/>
+                        <spinner id="sp_custom_action" entries="0: 聚能|1: 重复攻击" w="*"/>
+                    </horizontal>
+
+                    <checkbox id="cb_stop_when_catchable" text="检测到可捕捉(红标消失)时自动转为聚能" checked="true" margin="0 4"/>
+                </vertical>
+            </card>
+
+            <card w="*" h="auto" margin="0 0 0 16" cardElevation="2dp" cardCornerRadius="4dp">
+                <vertical padding="16">
                     <text text="运行控制" textSize="18sp" textColor="#333333" textStyle="bold" margin="0 0 0 8"/>
                     <horizontal margin="0 0 0 8">
                         <text text="选择模式:" gravity="center_vertical" margin="0 0 8 0"/>
-                        <spinner id="sp_mode" entries="1: 聚能模式|2: 逃跑模式|3: 智能模式" w="*"/>
+                        <spinner id="sp_mode" entries="1: 聚能模式|2: 逃跑模式|3: 智能模式|4: 攻击模式" w="*"/>
                     </horizontal>
                     <button id="btn_start" text="启动脚本" style="Widget.AppCompat.Button.Colored" bg="#4CAF50"/>
                 </vertical>
@@ -63,6 +86,10 @@ ui.layout(
 ui.input_poll.setText(storage.get("POLL_INTERVAL_MS", 3000).toString());
 ui.input_threshold.setText(storage.get("TEMPLATE_MATCH_THRESHOLD", 0.7).toString());
 ui.sp_mode.setSelection(storage.get("LAST_MODE_INDEX", 2)); // 默认选择“智能模式”(索引2)
+ui.input_custom_x.setText(storage.get("CUSTOM_ATTACK_X", 0).toString());
+ui.input_custom_y.setText(storage.get("CUSTOM_ATTACK_Y", 0).toString());
+ui.sp_custom_action.setSelection(storage.get("CUSTOM_SUBSEQUENT_ACTION", 0));
+ui.cb_stop_when_catchable.setChecked(storage.get("CUSTOM_STOP_WHEN_CATCHABLE", true));
 
 // 权限状态更新
 function updatePermissionStatus() {
@@ -111,6 +138,10 @@ ui.btn_save.click(() => {
     storage.put("POLL_INTERVAL_MS", parseInt(ui.input_poll.text()) || 3000);
     storage.put("TEMPLATE_MATCH_THRESHOLD", parseFloat(ui.input_threshold.text()) || 0.7);
     storage.put("LAST_MODE_INDEX", ui.sp_mode.getSelectedItemPosition());
+    storage.put("CUSTOM_ATTACK_X", parseInt(ui.input_custom_x.text()) || 0);
+    storage.put("CUSTOM_ATTACK_Y", parseInt(ui.input_custom_y.text()) || 0);
+    storage.put("CUSTOM_SUBSEQUENT_ACTION", ui.sp_custom_action.getSelectedItemPosition());
+    storage.put("CUSTOM_STOP_WHEN_CATCHABLE", ui.cb_stop_when_catchable.isChecked());
     toastLog("配置已保存");
 });
 
@@ -145,7 +176,7 @@ ui.btn_start.click(() => {
     ui.btn_save.performClick();
 
     let modeIndex = ui.sp_mode.getSelectedItemPosition();
-    let modeValue = (modeIndex + 1).toString(); // "1", "2" 或 "3"
+    let modeValue = (modeIndex + 1).toString(); // "1", "2", "3" 或 "4"
 
     botThread = threads.start(function() {
         console.log("=== Auto-Roco 启动 ===");

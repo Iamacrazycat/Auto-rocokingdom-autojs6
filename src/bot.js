@@ -11,6 +11,7 @@ function AutoRocoBot(mode) {
     // 状态机变量
     this.lastNonOtherState = "非战斗"; // 初始假设为非战斗
     this.effectiveBattleState = null;   // 锁定当前战斗的有效状态（"有效战斗" 或 "无效战斗"）
+    this.battleActionCount = 0;         // 记录当前战斗中执行的动作回合数
 
     // 从本地存储加载持久化的坐标
     this.cachedSkillXLoc = storage.get("loc_skill_x", null);
@@ -96,7 +97,26 @@ AutoRocoBot.prototype.run = function () {
             }
 
             // 根据锁定的有效战斗状态执行动作
-            if (this.effectiveBattleState === "有效战斗") {
+            let actionToTake = "none";
+            if (this.mode === "1") {
+                actionToTake = "skill_x"; // 聚能模式：不管有效无效，都点击聚能
+            } else if (this.mode === "2") {
+                actionToTake = "escape";  // 逃跑模式：不管有效无效，都点击逃跑
+            } else if (this.mode === "4") {
+                if (this.effectiveBattleState === "有效战斗") {
+                    if (config.CUSTOM_STOP_WHEN_CATCHABLE && detectedState === "无效战斗") {
+                        actionToTake = "skill_x"; // 变为可捕捉，停止攻击并聚能
+                    } else {
+                        actionToTake = "custom"; // 依然不可捕捉，继续自定义动作
+                    }
+                } else {
+                    actionToTake = "escape"; // 锁定为无效战斗则直接逃跑
+                }
+            } else {
+                actionToTake = this.effectiveBattleState === "有效战斗" ? "skill_x" : "escape"; // 智能模式
+            }
+
+            if (actionToTake === "skill_x") {
                 let loc = this.cachedSkillXLoc || vision.matchTemplateWithScales(screenImg, this.tpls["skill_x"], config.TEMPLATE_MATCH_THRESHOLD);
                 if (loc) {
                     if (!this.cachedSkillXLoc) {
@@ -104,12 +124,37 @@ AutoRocoBot.prototype.run = function () {
                         storage.put("loc_skill_x", loc);
                         console.log("-> 首次匹配 skill_x 成功，已持久化坐标至本地");
                     }
-                    console.log("-> 匹配到有效战斗，执行 [技能点击]");
+                    console.log("-> 执行 [技能(聚能)点击]");
                     inputHandler.clickSkillX(loc);
                 } else {
-                    console.verbose("-> 有效战斗，但未找到 skill_x 模板");
+                    console.verbose("-> 未找到 skill_x 模板");
                 }
-            } else if (this.effectiveBattleState === "无效战斗") {
+            } else if (actionToTake === "custom") {
+                if (this.battleActionCount === 0) {
+                    console.log("-> 攻击模式(第1回合)，执行 [自定义点击]");
+                    inputHandler.clickCustom(config.CUSTOM_ATTACK_X, config.CUSTOM_ATTACK_Y);
+                    this.battleActionCount++;
+                } else {
+                    if (config.CUSTOM_SUBSEQUENT_ACTION === 0) {
+                        let loc = this.cachedSkillXLoc || vision.matchTemplateWithScales(screenImg, this.tpls["skill_x"], config.TEMPLATE_MATCH_THRESHOLD);
+                        if (loc) {
+                            if (!this.cachedSkillXLoc) {
+                                this.cachedSkillXLoc = loc;
+                                storage.put("loc_skill_x", loc);
+                                console.log("-> 首次匹配 skill_x 成功，已持久化坐标至本地");
+                            }
+                            console.log(`-> 攻击模式(第${this.battleActionCount+1}回合，后续:聚能)，执行 [技能点击]`);
+                            inputHandler.clickSkillX(loc);
+                        } else {
+                            console.verbose("-> 攻击模式(后续聚能)，但未找到 skill_x 模板");
+                        }
+                    } else {
+                        console.log(`-> 攻击模式(第${this.battleActionCount+1}回合，后续:重复)，执行 [自定义点击]`);
+                        inputHandler.clickCustom(config.CUSTOM_ATTACK_X, config.CUSTOM_ATTACK_Y);
+                    }
+                    this.battleActionCount++;
+                }
+            } else if (actionToTake === "escape") {
                 let loc = this.cachedEscapeBtnLoc || vision.matchTemplateWithScales(screenImg, this.tpls["escape_btn"], config.TEMPLATE_MATCH_THRESHOLD);
                 if (loc) {
                     if (!this.cachedEscapeBtnLoc) {
@@ -117,7 +162,7 @@ AutoRocoBot.prototype.run = function () {
                         storage.put("loc_escape_btn", loc);
                         console.log("-> 首次匹配 escape_btn 成功，已持久化坐标至本地");
                     }
-                    console.log("-> 匹配到无效战斗，执行 [逃跑点击]");
+                    console.log("-> 执行 [逃跑点击]");
                     inputHandler.clickEscape(loc);
                     
                     // 额外增加的延迟，等待逃跑确认弹窗完全弹出（由于有坐标缓存，可以适当缩短）
@@ -146,14 +191,15 @@ AutoRocoBot.prototype.run = function () {
                     
                     sleep(2000); // 等待逃跑动画
                 } else {
-                    console.verbose("-> 无效战斗，但未找到 escape_btn 模板");
+                    console.verbose("-> 未找到 escape_btn 模板");
                 }
             }
         } else if (detectedState === "非战斗") {
             // 回到非战斗界面，重置战斗锁定状态
             if (this.effectiveBattleState !== null) {
-                console.log("[状态机] 检测到非战斗状态，重置锁定战斗状态");
+                console.log("[状态机] 检测到非战斗状态，重置锁定战斗状态和动作回合");
                 this.effectiveBattleState = null;
+                this.battleActionCount = 0;
             }
         }
 

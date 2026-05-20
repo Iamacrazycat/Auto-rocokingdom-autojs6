@@ -31,5 +31,13 @@ module.exports = {
 
     // 参考分辨率（用于模板缩放）
     get REF_WIDTH() { return storage.get("REF_WIDTH", 2772); },
-    get REF_HEIGHT() { return storage.get("REF_HEIGHT", 1280); }
+    get REF_HEIGHT() { return storage.get("REF_HEIGHT", 1280); },
+
+    // 攻击模式参数
+    get CUSTOM_ATTACK_X() { return storage.get("CUSTOM_ATTACK_X", 0); },
+    get CUSTOM_ATTACK_Y() { return storage.get("CUSTOM_ATTACK_Y", 0); },
+    // 0: 聚能, 1: 重复攻击
+    get CUSTOM_SUBSEQUENT_ACTION() { return storage.get("CUSTOM_SUBSEQUENT_ACTION", 0); },
+    // 当可捕捉（变为无效战斗图标）时停止攻击并转为聚能
+    get CUSTOM_STOP_WHEN_CATCHABLE() { return storage.get("CUSTOM_STOP_WHEN_CATCHABLE", true); }
 };

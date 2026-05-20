@@ -65,8 +65,19 @@ function clickConfirmYes(loc) {
     safeClick(loc.x, loc.y);
 }
 
+/**
+ * 点击自定义坐标
+ * @param {Number} x 
+ * @param {Number} y 
+ */
+function clickCustom(x, y) {
+    console.log(`-> 触发 自定义点击 (${x}, ${y})...`);
+    safeClick(x, y);
+}
+
 module.exports = {
     clickSkillX: clickSkillX,
     clickEscape: clickEscape,
-    clickConfirmYes: clickConfirmYes
+    clickConfirmYes: clickConfirmYes,
+    clickCustom: clickCustom
 };
