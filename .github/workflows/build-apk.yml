@@ -37,25 +37,17 @@ jobs:
             curl -L -o scripts/uber-apk-signer.jar https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar
           fi
 
-      - name: Download Apktool
-        run: |
-          curl -L -o apktool.jar https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar
-
       - name: Auto Increment Version in AndroidManifest
         run: |
-          echo "🔨 Decoding base.apk to update version..."
-          java -jar apktool.jar d -s -f scripts/base.apk -o base_decoded
+          echo "🔨 Extracting AndroidManifest.xml from base.apk..."
+          unzip -j scripts/base.apk AndroidManifest.xml -d .
           
-          echo "⚙️ Patching apktool.yml with GitHub Run Number..."
+          echo "⚙️ Binary patching AndroidManifest.xml with GitHub Run Number..."
           VERSION_NAME=$(node -p "require('./project.json').versionName")
           echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
           
-          sed -i "s/versionCode: .*/versionCode: '${{ github.run_number }}'/g" base_decoded/apktool.yml
-          sed -i "s/versionName: .*/versionName: ${VERSION_NAME}-build${{ github.run_number }}/g" base_decoded/apktool.yml
-          
-          echo "📦 Rebuilding dummy APK to get patched AndroidManifest.xml..."
-          java -jar apktool.jar b base_decoded -o temp.apk --use-aapt1
-          unzip -j temp.apk AndroidManifest.xml -d .
+          # Use our lightweight Python patcher to safely increment versionCode in the binary AXML
+          python scripts/patch_axml.py AndroidManifest.xml ${{ github.run_number }}
           
       - name: Inject Code and Build Final APK
         env:
