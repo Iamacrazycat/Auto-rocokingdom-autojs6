@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { execSync } = require('child_process');
 
 // ================= 配置区域 =================
@@ -12,7 +13,7 @@ const BASE_APK = path.join(__dirname, 'base.apk'); // 手机上打出的空壳/�
 const PROJECT_DIR = path.join(__dirname, '..'); // 项目源码根目录
 const TEMP_DIR = path.join(__dirname, 'build_temp');
 const OUTPUT_UNSIGNED_APK = path.join(__dirname, 'unsigned.apk');
-const JAVA_PATH = 'C:\\Program Files\\Java\\jre1.8.0_491\\bin\\java.exe'; // 使用你机器上的绝对路径
+const JAVA_PATH = os.platform() === 'win32' ? 'C:\\Program Files\\Java\\jre1.8.0_491\\bin\\java.exe' : 'java'; // 云端使用内置 java，本地使用绝对路径
 // ==========================================
 
 console.log("🚀 开始本地打包流程...");
