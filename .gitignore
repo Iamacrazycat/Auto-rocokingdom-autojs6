@@ -1,0 +1,27 @@
+# Logs
+*.log
+crash_log.txt
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Auto.js / Android build artifacts
+build/
+build_temp/
+base_unzipped/
+base_full/
+
+# APKs and Archives (Ignore all, but keep the core base.apk template)
+*.apk
+*.zip
+*.rar
+*.7z
+*.idsig
+!scripts/base.apk

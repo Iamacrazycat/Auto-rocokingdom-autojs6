@@ -1,0 +1,66 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - '.gitignore'
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download uber-apk-signer
+        run: |
+          if [ ! -f "scripts/uber-apk-signer.jar" ]; then
+            curl -L -o scripts/uber-apk-signer.jar https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar
+          fi
+
+      - name: Download Apktool
+        run: |
+          curl -L -o apktool.jar https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar
+
+      - name: Auto Increment Version in AndroidManifest
+        run: |
+          echo "🔨 Decoding base.apk to update version..."
+          java -jar apktool.jar d -s -f scripts/base.apk -o base_decoded
+          
+          echo "⚙️ Patching apktool.yml with GitHub Run Number..."
+          VERSION_NAME=$(node -p "require('./project.json').versionName")
+          sed -i "s/versionCode: .*/versionCode: '${{ github.run_number }}'/g" base_decoded/apktool.yml
+          sed -i "s/versionName: .*/versionName: ${VERSION_NAME}-build${{ github.run_number }}/g" base_decoded/apktool.yml
+          
+          echo "📦 Rebuilding dummy APK to get patched AndroidManifest.xml..."
+          java -jar apktool.jar b base_decoded -o temp.apk
+          unzip -j temp.apk AndroidManifest.xml -d .
+          
+      - name: Inject Code and Build Final APK
+        env:
+          NEW_MANIFEST: AndroidManifest.xml
+        run: |
+          echo "🔨 Running build_apk.js to surgically inject files..."
+          node scripts/build_apk.js
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Auto-rocokingdom-release
+          path: Auto-rocokingdom-release.apk
