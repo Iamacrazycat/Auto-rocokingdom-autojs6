@@ -76,7 +76,8 @@ function applyHsvBounds(hsvMat, boundsArr) {
     return finalMask;
 }
 
-function calcMarkerScore(targetBgr, tplBgr, boundsArr) {
+function calcMarkerScore(targetBgr, tplBgr, boundsArr, maxExtraPixels) {
+    if (maxExtraPixels === undefined) maxExtraPixels = config.MARKER_MAX_EXTRA_PIXELS;
     let Imgproc = org.opencv.imgproc.Imgproc;
     let Core = org.opencv.core.Core;
     let Mat = org.opencv.core.Mat;
@@ -100,7 +101,7 @@ function calcMarkerScore(targetBgr, tplBgr, boundsArr) {
     let score = 0.0;
 
     if (templatePixels === 0) {
-        score = targetPixels <= config.MARKER_MAX_EXTRA_PIXELS ? 1.0 : 0.0;
+        score = targetPixels <= maxExtraPixels ? 1.0 : 0.0;
     } else {
         let intersection = new Mat();
         Core.bitwise_and(targetMask, tplMask, intersection);
@@ -187,8 +188,16 @@ function matchTemplateWithScales(screenImg, tpl, threshold, useHsvMarker = false
 
     try {
         let hsvBounds = null;
+        let hsvOpt = null;
         if (useHsvMarker) {
-            hsvBounds = getHsvBounds(config.MARKER_COLOR, config.MARKER_HUE_TOL, config.MARKER_SAT_TOL, config.MARKER_VAL_TOL);
+            hsvOpt = typeof useHsvMarker === "object" ? useHsvMarker : {
+                color: config.MARKER_COLOR,
+                hueTol: config.MARKER_HUE_TOL,
+                satTol: config.MARKER_SAT_TOL,
+                valTol: config.MARKER_VAL_TOL,
+                maxExtraPx: config.MARKER_MAX_EXTRA_PIXELS
+            };
+            hsvBounds = getHsvBounds(hsvOpt.color, hsvOpt.hueTol, hsvOpt.satTol, hsvOpt.valTol);
         }
 
         for (let scale of uniqueScales) {
@@ -231,7 +240,7 @@ function matchTemplateWithScales(screenImg, tpl, threshold, useHsvMarker = false
                         tpl.bgrMat.copyTo(tplColorScaled);
                     }
 
-                    markerInfo = calcMarkerScore(targetCrop, tplColorScaled, hsvBounds);
+                    markerInfo = calcMarkerScore(targetCrop, tplColorScaled, hsvBounds, hsvOpt.maxExtraPx);
                     
                     targetCrop.release();
                     tplColorScaled.release();

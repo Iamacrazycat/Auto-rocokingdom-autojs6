@@ -41,6 +41,7 @@ ui.layout(
                         <button id="btn_save" text="保存配置" w="0" layout_weight="1"/>
                         <button id="btn_clear_cache" text="清除坐标缓存" w="0" layout_weight="1" style="Widget.AppCompat.Button.Colored" bg="#FF9800"/>
                     </horizontal>
+                    <checkbox id="cb_auto_accept_team" text="自动接受组队(非战斗时自动匹配并点击)" checked="true" margin="0 8 0 0"/>
                 </vertical>
             </card>
 
@@ -90,6 +91,7 @@ ui.input_custom_x.setText(storage.get("CUSTOM_ATTACK_X", 0).toString());
 ui.input_custom_y.setText(storage.get("CUSTOM_ATTACK_Y", 0).toString());
 ui.sp_custom_action.setSelection(storage.get("CUSTOM_SUBSEQUENT_ACTION", 0));
 ui.cb_stop_when_catchable.setChecked(storage.get("CUSTOM_STOP_WHEN_CATCHABLE", true));
+ui.cb_auto_accept_team.setChecked(storage.get("AUTO_ACCEPT_TEAM", true));
 
 // 权限状态更新
 function updatePermissionStatus() {
@@ -142,6 +144,7 @@ ui.btn_save.click(() => {
     storage.put("CUSTOM_ATTACK_Y", parseInt(ui.input_custom_y.text()) || 0);
     storage.put("CUSTOM_SUBSEQUENT_ACTION", ui.sp_custom_action.getSelectedItemPosition());
     storage.put("CUSTOM_STOP_WHEN_CATCHABLE", ui.cb_stop_when_catchable.isChecked());
+    storage.put("AUTO_ACCEPT_TEAM", ui.cb_auto_accept_team.isChecked());
     toastLog("配置已保存");
 });
 

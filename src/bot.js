@@ -31,7 +31,7 @@ AutoRocoBot.prototype.init = function () {
     }
 
     // 预加载所有模板
-    let templatesToLoad = ["chat", "capture", "capture_abandon", "skill_x", "escape_btn", "escape_yes"];
+    let templatesToLoad = ["chat", "capture", "capture_abandon", "skill_x", "escape_btn", "escape_yes", "daidaini"];
     templatesToLoad.forEach(name => {
         this.tpls[name] = vision.loadTemplate(name);
     });
@@ -200,6 +200,17 @@ AutoRocoBot.prototype.run = function () {
                 console.log("[状态机] 检测到非战斗状态，重置锁定战斗状态和动作回合");
                 this.effectiveBattleState = null;
                 this.battleActionCount = 0;
+            }
+
+            // 自动接受组队
+            if (config.AUTO_ACCEPT_TEAM) {
+                let hsvOpt = { color: "#da9924", hueTol: 10, satTol: 60, valTol: 60 };
+                let daidainiLoc = vision.matchTemplateWithScales(screenImg, this.tpls["daidaini"], config.TEMPLATE_MATCH_THRESHOLD, hsvOpt);
+                if (daidainiLoc && (daidainiLoc.targetPx > 10 || daidainiLoc.markerScore > 0.1)) {
+                    console.log("-> 匹配到 daidaini 且包含特定色彩特征，执行点击接受组队");
+                    inputHandler.clickAcceptTeam(daidainiLoc);
+                    sleep(1000); // 稍微等待一下
+                }
             }
         }
 

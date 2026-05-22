@@ -75,9 +75,22 @@ function clickCustom(x, y) {
     safeClick(x, y);
 }
 
+/**
+ * 点击自动接受组队
+ * @param {Object} loc 
+ */
+function clickAcceptTeam(loc) {
+    if (!loc) {
+        return;
+    }
+    console.log("-> 触发 接受组队 点击...");
+    safeClick(loc.x, loc.y);
+}
+
 module.exports = {
     clickSkillX: clickSkillX,
     clickEscape: clickEscape,
     clickConfirmYes: clickConfirmYes,
-    clickCustom: clickCustom
+    clickCustom: clickCustom,
+    clickAcceptTeam: clickAcceptTeam
 };

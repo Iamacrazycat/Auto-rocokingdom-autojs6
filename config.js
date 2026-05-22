@@ -39,5 +39,8 @@ module.exports = {
     // 0: 聚能, 1: 重复攻击
     get CUSTOM_SUBSEQUENT_ACTION() { return storage.get("CUSTOM_SUBSEQUENT_ACTION", 0); },
     // 当可捕捉（变为无效战斗图标）时停止攻击并转为聚能
-    get CUSTOM_STOP_WHEN_CATCHABLE() { return storage.get("CUSTOM_STOP_WHEN_CATCHABLE", true); }
+    get CUSTOM_STOP_WHEN_CATCHABLE() { return storage.get("CUSTOM_STOP_WHEN_CATCHABLE", true); },
+
+    // 是否自动接受组队
+    get AUTO_ACCEPT_TEAM() { return storage.get("AUTO_ACCEPT_TEAM", true); }
 };
