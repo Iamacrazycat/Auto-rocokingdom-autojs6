@@ -9,6 +9,9 @@ on:
       - '.gitignore'
   workflow_dispatch: # 允许手动触发
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -45,11 +48,13 @@ jobs:
           
           echo "⚙️ Patching apktool.yml with GitHub Run Number..."
           VERSION_NAME=$(node -p "require('./project.json').versionName")
+          echo "VERSION_NAME=${VERSION_NAME}" >> $GITHUB_ENV
+          
           sed -i "s/versionCode: .*/versionCode: '${{ github.run_number }}'/g" base_decoded/apktool.yml
           sed -i "s/versionName: .*/versionName: ${VERSION_NAME}-build${{ github.run_number }}/g" base_decoded/apktool.yml
           
           echo "📦 Rebuilding dummy APK to get patched AndroidManifest.xml..."
-          java -jar apktool.jar b base_decoded -o temp.apk
+          java -jar apktool.jar b base_decoded -o temp.apk --use-aapt1
           unzip -j temp.apk AndroidManifest.xml -d .
           
       - name: Inject Code and Build Final APK
@@ -64,3 +69,12 @@ jobs:
         with:
           name: Auto-rocokingdom-release
           path: Auto-rocokingdom-release.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_NAME }}-build${{ github.run_number }}
+          name: Release v${{ env.VERSION_NAME }}-build${{ github.run_number }}
+          files: Auto-rocokingdom-release.apk
+          draft: false
+          prerelease: false

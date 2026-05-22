@@ -87,8 +87,7 @@ fs.writeFileSync(pyScriptPath, pyScript);
 if (fs.existsSync(OUTPUT_UNSIGNED_APK)) {
     fs.rmSync(OUTPUT_UNSIGNED_APK, { force: true });
 }
-const newManifest = process.env.NEW_MANIFEST || "";
-execSync(`python "${pyScriptPath}" "${BASE_APK}" "${OUTPUT_UNSIGNED_APK}" "${PROJECT_DIR}" "${newManifest}"`, { stdio: 'inherit' });
+execSync(`python "${pyScriptPath}" "${BASE_APK}" "${OUTPUT_UNSIGNED_APK}" "${PROJECT_DIR}"`, { stdio: 'inherit' });
 fs.rmSync(pyScriptPath);
 
 console.log("📦 注入完毕，准备签名...");
