@@ -94,6 +94,9 @@ AutoRocoBot.prototype.run = function () {
             if (this.lastNonOtherState === "非战斗") {
                 this.effectiveBattleState = detectedState;
                 console.log(`[状态机] 从非战斗进入战斗，锁定有效战斗状态为: ${this.effectiveBattleState}`);
+                if (detectedState === "有效战斗") {
+                    this.incrementValidBattleCount();
+                }
             }
 
             // 根据锁定的有效战斗状态执行动作
@@ -222,6 +225,24 @@ AutoRocoBot.prototype.run = function () {
         screenImg.recycle();
         sleep(config.POLL_INTERVAL_MS);
     }
+};
+
+AutoRocoBot.prototype.incrementValidBattleCount = function() {
+    let today = new Date().toDateString();
+    let savedDate = storage.get("VALID_BATTLE_DATE", "");
+    let count = storage.get("VALID_BATTLE_COUNT", 0);
+
+    if (savedDate !== today) {
+        count = 0;
+        storage.put("VALID_BATTLE_DATE", today);
+    }
+    
+    count++;
+    storage.put("VALID_BATTLE_COUNT", count);
+    console.log(`[统计] 今日有效战斗次数: ${count}`);
+    
+    // 通知UI或悬浮窗更新
+    events.broadcast.emit("valid_battle_count_changed", count);
 };
 
 module.exports = AutoRocoBot;

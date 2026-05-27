@@ -7,11 +7,18 @@
     "number": 0,
     "time": 0
   },
-  "excludeDirs": [
-    "build"
+  "excludeDirs": [],
+  "ignore": [
+    "build",
+    ".vscode",
+    ".git",
+    "node_modules",
+    "*.log",
+    "*.bak",
+    "scripts",
+    ".github"
   ],
   "useFeatures": [],
-  "icon": "res/logo.png",
   "launchConfig": {
     "launcherVisible": true,
     "logsVisible": true,

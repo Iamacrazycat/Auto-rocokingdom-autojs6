@@ -7,6 +7,7 @@ FloatyManager.init = function(bot, botThread) {
             {/* 展开的菜单 */}
             <horizontal id="menu" bg="#aa000000" padding="8" cornerRadius="22" visibility="gone" gravity="center_vertical">
                 <img id="btn_collapse" w="28" h="28" src="@drawable/ic_chevron_left_black_48dp" tint="#ffffff" margin="0 0 8 0"/>
+                <text id="txt_float_battles" text="今日: 0" textColor="#4CAF50" textSize="14sp" margin="0 0 8 0" padding="6 12" textStyle="bold"/>
                 <text id="btn_toggle" text="暂停" textColor="#ffffff" textSize="14sp" margin="0 0 8 0" bg="#55ffffff" padding="6 12" cornerRadius="12"/>
                 <text id="btn_close" text="关闭" textColor="#ffffff" textSize="14sp" bg="#ff4c4c" padding="6 12" cornerRadius="12"/>
             </horizontal>
@@ -18,6 +19,22 @@ FloatyManager.init = function(bot, botThread) {
     );
 
     w.setPosition(0, device.height / 3);
+
+    // 初始化显示
+    let today = new Date().toDateString();
+    let storage = storages.create("auto_roco_config");
+    let savedDate = storage.get("VALID_BATTLE_DATE", "");
+    let count = storage.get("VALID_BATTLE_COUNT", 0);
+    if (savedDate !== today) count = 0;
+    w.txt_float_battles.setText("今日: " + count);
+
+    events.broadcast.on("valid_battle_count_changed", function(c) {
+        ui.run(() => {
+            if (w && w.txt_float_battles) {
+                w.txt_float_battles.setText("今日: " + c);
+            }
+        });
+    });
 
     // 拖动逻辑
     var wx, wy, tx, ty;
